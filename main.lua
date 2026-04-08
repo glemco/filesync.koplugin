@@ -5,7 +5,7 @@ local _ = ok_i18n and plugin_gettext or require("gettext")
 
 -- Determine plugin directory from this file's path
 local _plugin_dir = debug.getinfo(1, "S").source:match("@(.+)/[^/]+$") or "."
-local _meta = dofile(_plugin_dir .. "/_meta.lua")
+local plugin_meta = dofile(_plugin_dir .. "/_meta.lua")
 
 local FileSync = WidgetContainer:extend{
     name = "filesync",
@@ -92,7 +92,7 @@ function FileSync:addToMainMenu(menu_items)
                     local InfoMessage = require("ui/widget/infomessage")
                     local T = require("ffi/util").template
                     UIManager:show(InfoMessage:new{
-                        text = T(_("FileSync v%1\n\nWireless file manager for KOReader.\n\nStart the server, scan the QR code with your phone, and manage your books from any browser on the same WiFi network.\n\nProject:\ngithub.com/abrahamnm/filesync.koplugin"), _meta.version),
+                        text = T(_("FileSync v%1\n\nWireless file manager for KOReader.\n\nStart the server, scan the QR code with your phone, and manage your books from any browser on the same WiFi network.\n\nProject:\ngithub.com/abrahamnm/filesync.koplugin"), plugin_meta.version),
                     })
                 end,
                 keep_menu_open = true,

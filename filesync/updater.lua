@@ -1,3 +1,11 @@
+--- OTA update checker for the FileSync plugin.
+--- Fetches the latest GitHub release, compares semantic versions, and handles
+--- downloading, extracting, and installing ZIP updates with backup/rollback.
+---
+--- Key dependencies: ssl.https (LuaSec), filesync/json, filesync/utils
+
+local JSON = require("filesync/json")
+local Utils = require("filesync/utils")
 local logger = require("logger")
 local ok_i18n, plugin_gettext = pcall(require, "filesync/filesync_i18n")
 local _ = ok_i18n and plugin_gettext or require("gettext")
@@ -9,15 +17,7 @@ local Updater = {
 
 --- Get the plugin directory path dynamically.
 function Updater:_getPluginDir()
-    local info = debug.getinfo(1, "S")
-    local script_path = info.source:match("@(.+)")
-    if script_path then
-        -- This file is filesync/updater.lua, go up one level
-        local filesync_dir = script_path:match("(.+)/[^/]+$") or "."
-        local plugin_dir = filesync_dir:match("(.+)/[^/]+$") or "."
-        return plugin_dir
-    end
-    return "."
+    return Utils.getPluginDir()
 end
 
 --- Get current plugin version from _meta.lua.
@@ -51,157 +51,6 @@ function Updater:_isNewer(remote_ver, local_ver)
     return remote_ver.patch > local_ver.patch
 end
 
---- Minimal JSON parser (recursive descent). Reuses the same approach as httpserver.lua.
-function Updater:_parseJSON(str)
-    if not str or str == "" then return nil end
-    local pos = 1
-
-    local function skip_whitespace()
-        while pos <= #str and str:sub(pos, pos):match("%s") do
-            pos = pos + 1
-        end
-    end
-
-    local parse_value -- forward declaration
-
-    local function parse_string()
-        if str:sub(pos, pos) ~= '"' then return nil end
-        pos = pos + 1
-        local result = {}
-        while pos <= #str do
-            local c = str:sub(pos, pos)
-            if c == '"' then
-                pos = pos + 1
-                return table.concat(result)
-            elseif c == '\\' then
-                pos = pos + 1
-                local esc = str:sub(pos, pos)
-                if esc == '"' or esc == '\\' or esc == '/' then
-                    table.insert(result, esc)
-                elseif esc == 'n' then table.insert(result, '\n')
-                elseif esc == 'r' then table.insert(result, '\r')
-                elseif esc == 't' then table.insert(result, '\t')
-                elseif esc == 'b' then table.insert(result, '\b')
-                elseif esc == 'f' then table.insert(result, '\f')
-                elseif esc == 'u' then
-                    local hex = str:sub(pos + 1, pos + 4)
-                    local code = tonumber(hex, 16)
-                    if code then
-                        if code < 128 then
-                            table.insert(result, string.char(code))
-                        end
-                    end
-                    pos = pos + 4
-                end
-                pos = pos + 1
-            else
-                table.insert(result, c)
-                pos = pos + 1
-            end
-        end
-        return nil
-    end
-
-    local function parse_number()
-        local start = pos
-        if str:sub(pos, pos) == '-' then pos = pos + 1 end
-        while pos <= #str and str:sub(pos, pos):match("%d") do pos = pos + 1 end
-        if pos <= #str and str:sub(pos, pos) == '.' then
-            pos = pos + 1
-            while pos <= #str and str:sub(pos, pos):match("%d") do pos = pos + 1 end
-        end
-        if pos <= #str and str:sub(pos, pos):lower() == 'e' then
-            pos = pos + 1
-            if pos <= #str and (str:sub(pos, pos) == '+' or str:sub(pos, pos) == '-') then
-                pos = pos + 1
-            end
-            while pos <= #str and str:sub(pos, pos):match("%d") do pos = pos + 1 end
-        end
-        return tonumber(str:sub(start, pos - 1))
-    end
-
-    local function parse_object()
-        pos = pos + 1 -- skip '{'
-        skip_whitespace()
-        local obj = {}
-        if str:sub(pos, pos) == '}' then
-            pos = pos + 1
-            return obj
-        end
-        while true do
-            skip_whitespace()
-            local key = parse_string()
-            if not key then return nil end
-            skip_whitespace()
-            if str:sub(pos, pos) ~= ':' then return nil end
-            pos = pos + 1
-            skip_whitespace()
-            local val = parse_value()
-            obj[key] = val
-            skip_whitespace()
-            if str:sub(pos, pos) == '}' then
-                pos = pos + 1
-                return obj
-            end
-            if str:sub(pos, pos) ~= ',' then return nil end
-            pos = pos + 1
-        end
-    end
-
-    local function parse_array()
-        pos = pos + 1 -- skip '['
-        skip_whitespace()
-        local arr = {}
-        if str:sub(pos, pos) == ']' then
-            pos = pos + 1
-            return arr
-        end
-        while true do
-            skip_whitespace()
-            local val = parse_value()
-            table.insert(arr, val)
-            skip_whitespace()
-            if str:sub(pos, pos) == ']' then
-                pos = pos + 1
-                return arr
-            end
-            if str:sub(pos, pos) ~= ',' then return nil end
-            pos = pos + 1
-        end
-    end
-
-    parse_value = function()
-        skip_whitespace()
-        local c = str:sub(pos, pos)
-        if c == '"' then return parse_string()
-        elseif c == '{' then return parse_object()
-        elseif c == '[' then return parse_array()
-        elseif c == 't' then
-            if str:sub(pos, pos + 3) == "true" then
-                pos = pos + 4
-                return true
-            end
-        elseif c == 'f' then
-            if str:sub(pos, pos + 4) == "false" then
-                pos = pos + 5
-                return false
-            end
-        elseif c == 'n' then
-            if str:sub(pos, pos + 3) == "null" then
-                pos = pos + 4
-                return nil
-            end
-        elseif c == '-' or c:match("%d") then
-            return parse_number()
-        end
-        return nil
-    end
-
-    local ok, result = pcall(parse_value)
-    if ok then return result end
-    return nil
-end
-
 --- Fetch latest release info from GitHub API via HTTPS.
 -- Returns release table on success, or nil + error message on failure.
 function Updater:_fetchLatestRelease()
@@ -228,7 +77,7 @@ function Updater:_fetchLatestRelease()
     end
 
     local body = table.concat(response_body)
-    local release = self:_parseJSON(body)
+    local release = JSON.decode(body)
     if not release then
         return nil, _("Failed to parse update information from GitHub.")
     end
@@ -252,49 +101,6 @@ function Updater:_getDownloadUrl(release)
         return release.zipball_url
     end
     return nil
-end
-
---- Perform an HTTPS/HTTP request, following redirects manually.
--- LuaSec's ssl.https does not support the "redirect" option that socket.http has,
--- so we must handle 3xx redirects ourselves.
-function Updater:_httpsRequest(url, sink)
-    local https = require("ssl.https")
-    local http = require("socket.http")
-    local ltn12 = require("ltn12")
-
-    local max_redirects = 10
-    for _ = 1, max_redirects do
-        local request_func = url:match("^https") and https.request or http.request
-        local result, status_code, headers = request_func{
-            url = url,
-            method = "GET",
-            headers = {
-                ["User-Agent"] = "filesync.koplugin",
-            },
-            sink = sink,
-            redirect = false,
-        }
-
-        if not result then
-            return nil, nil, nil
-        end
-
-        -- Follow 3xx redirects
-        if status_code >= 300 and status_code < 400 and headers then
-            local location = headers["location"] or headers["Location"]
-            if location then
-                -- Reset sink for the redirect — we need a fresh table sink
-                -- (file sinks can't be reused, caller handles this for file downloads)
-                url = location
-            else
-                return result, status_code, headers
-            end
-        else
-            return result, status_code, headers
-        end
-    end
-
-    return nil, nil, nil
 end
 
 --- Download a file from a URL (follows redirects) to a local path.
@@ -438,6 +244,13 @@ function Updater:_installUpdate(zip_path)
         self:_shellEscape(backup_dir)
     ))
 
+    if not mv_backup or (mv_backup ~= 0 and mv_backup ~= true) then
+        logger.err("FileSync Updater: backup move failed, aborting update")
+        os.execute("rm -rf " .. self:_shellEscape(tmp_dir))
+        os.remove(zip_path)
+        return nil, _("Failed to back up current plugin. Update aborted.")
+    end
+
     -- Move extracted content to the plugin directory
     local mv_install = os.execute(string.format(
         "mv %s %s",
@@ -470,7 +283,7 @@ end
 
 --- Escape a string for safe use in shell commands.
 function Updater:_shellEscape(s)
-    return "'" .. s:gsub("'", "'\\''") .. "'"
+    return Utils.shellEscape(s)
 end
 
 

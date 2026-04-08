@@ -1,3 +1,9 @@
+--- Server lifecycle management for the FileSync plugin.
+--- Handles starting/stopping the HTTP server, WiFi/IP detection, battery checks,
+--- QR code display, standby prevention, and Kindle firewall rules.
+---
+--- Key dependencies: device (KOReader), UIManager (KOReader), filesync/httpserver
+
 local Blitbuffer = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local ConfirmBox = require("ui/widget/confirmbox")
@@ -21,6 +27,7 @@ local Font = require("ui/font")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
 local ImageWidget = require("ui/widget/imagewidget")
+local Utils = require("filesync/utils")
 local logger = require("logger")
 local Screen = Device.screen
 local ok_i18n, plugin_gettext = pcall(require, "filesync/filesync_i18n")
@@ -161,10 +168,14 @@ function FileSyncManager:getRootDir()
     end
 end
 
+--- Check whether the FileSync server is currently running.
+--- @return boolean
 function FileSyncManager:isRunning()
     return self._running
 end
 
+--- Start the FileSync server: check WiFi, resolve IP, create HttpServer, and show QR code.
+--- @param silent boolean|nil: when true, suppress UI messages and QR code display
 function FileSyncManager:start(silent)
     if self._running then
         if not silent then
@@ -239,6 +250,8 @@ function FileSyncManager:start(silent)
     end
 end
 
+--- Stop the FileSync server: close QR screen, stop HttpServer, remove firewall rules.
+--- @param silent boolean|nil: when true, suppress UI messages and skip KOReader restart
 function FileSyncManager:stop(silent)
     if not self._running then
         return
@@ -337,6 +350,8 @@ function FileSyncManager:closeQRScreen()
     end
 end
 
+--- Display a full-screen QR code with the server URL, stop button, and close button.
+--- Requires the server to be running (with a valid IP address).
 function FileSyncManager:showQRCode()
     if not self._running or not self._ip then
         UIManager:show(InfoMessage:new{
@@ -362,10 +377,10 @@ function FileSyncManager:showQRCode()
     }
 
     -- Icon + Title row
-    local icon_dir = debug.getinfo(1, "S").source:match("@(.+)"):match("(.*/)")
+    local icon_path = Utils.getPluginDir() .. "/filesync/icon.png"
     local icon_size = Screen:scaleBySize(36)
     local icon_widget = ImageWidget:new{
-        file = icon_dir .. "icon.png",
+        file = icon_path,
         width = icon_size,
         height = icon_size,
         alpha = true,
@@ -573,6 +588,9 @@ function FileSyncManager:showQRCode()
 end
 
 function FileSyncManager:openKindleFirewall(port)
+    -- Defensive: ensure port is a valid number before passing to shell command
+    port = tonumber(port)
+    if not port then return end
     -- Add iptables rule to allow incoming connections on the server port
     os.execute(string.format(
         "iptables -A INPUT -p tcp --dport %d -j ACCEPT 2>/dev/null",
@@ -582,6 +600,9 @@ function FileSyncManager:openKindleFirewall(port)
 end
 
 function FileSyncManager:closeKindleFirewall(port)
+    -- Defensive: ensure port is a valid number before passing to shell command
+    port = tonumber(port)
+    if not port then return end
     -- Remove the iptables rule
     os.execute(string.format(
         "iptables -D INPUT -p tcp --dport %d -j ACCEPT 2>/dev/null",

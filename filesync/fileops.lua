@@ -1,3 +1,10 @@
+--- File operations module for the FileSync plugin.
+--- Handles directory listing, file upload/download, rename, delete, metadata extraction
+--- (EPUB OPF parsing, MOBI/AZW3 binary header parsing), and cover image extraction.
+---
+--- Key dependencies: lfs (LuaFileSystem), filesync/utils
+--- Note: EPUB metadata extraction shells out to `unzip` via io.popen.
+
 -- Try standard require first, then KOReader's internal path
 local ok, lfs = pcall(require, "lfs")
 if not ok then
@@ -6,6 +13,7 @@ end
 if not ok then
     error("FileSync: cannot load LFS filesystem module")
 end
+local Utils = require("filesync/utils")
 local logger = require("logger")
 
 local SAFE_MODE_EXTENSIONS = {
@@ -193,7 +201,14 @@ function FileOps:isExtensionSafe(filename)
     return SAFE_MODE_EXTENSIONS[ext:lower()] == true
 end
 
---- List directory contents
+--- List directory contents with sorting, filtering, and safe mode enforcement.
+--- @param rel_path string: relative path from root_dir
+--- @param sort_by string: sort field ("name", "size", "date", "type")
+--- @param sort_order string: "asc" or "desc"
+--- @param filter string: case-insensitive substring filter for filenames
+--- @param safe_mode boolean: when true, only show whitelisted file types
+--- @return table|nil: {path, entries, breadcrumbs, count} on success
+--- @return string|nil: error message on failure
 function FileOps:listDirectory(rel_path, sort_by, sort_order, filter, safe_mode)
     local full_path, err = self:_resolvePath(rel_path)
     if not full_path then
@@ -387,7 +402,12 @@ function FileOps:downloadFile(client, rel_path, server, inline)
     return true
 end
 
---- Handle multipart file upload
+--- Handle multipart file upload: parse multipart form data and write files to disk.
+--- @param rel_dir string: relative directory path for uploaded files
+--- @param body string: raw HTTP request body containing multipart data
+--- @param boundary string: multipart boundary string from Content-Type header
+--- @return boolean: true on success (at least one file uploaded)
+--- @return string|nil: error message on failure
 function FileOps:handleUpload(rel_dir, body, boundary)
     local dir_path, err = self:_resolvePath(rel_dir)
     if not dir_path then
@@ -639,22 +659,28 @@ end
 
 --- Recursively delete a directory and its contents
 function FileOps:_deleteRecursive(path)
-    for name in lfs.dir(path) do
-        if name ~= "." and name ~= ".." then
-            local entry_path = path .. "/" .. name
-            local entry_attr = lfs.attributes(entry_path)
-            if entry_attr then
-                if entry_attr.mode == "directory" then
-                    local ok, err = self:_deleteRecursive(entry_path)
-                    if not ok then return false, err end
-                else
-                    local ok, err = os.remove(entry_path)
-                    if not ok then
-                        return false, "Cannot delete: " .. tostring(err)
+    local iter_ok, iter_err = pcall(function()
+        for name in lfs.dir(path) do
+            if name ~= "." and name ~= ".." then
+                local entry_path = path .. "/" .. name
+                local entry_attr = lfs.attributes(entry_path)
+                if entry_attr then
+                    if entry_attr.mode == "directory" then
+                        local del_ok, del_err = self:_deleteRecursive(entry_path)
+                        if not del_ok then error(del_err) end
+                    else
+                        local rm_ok, rm_err = os.remove(entry_path)
+                        if not rm_ok then
+                            error("Cannot delete: " .. tostring(rm_err))
+                        end
                     end
                 end
             end
         end
+    end)
+
+    if not iter_ok then
+        return false, tostring(iter_err)
     end
 
     local ok, err = lfs.rmdir(path)
@@ -666,10 +692,7 @@ end
 
 --- Escape a string for safe use in a shell command (wrap in single quotes)
 function FileOps:_shellEscape(str)
-    if not str then return "''" end
-    -- Replace each single quote with: end quote, escaped quote, start quote
-    local escaped = str:gsub("'", "'\\''")
-    return "'" .. escaped .. "'"
+    return Utils.shellEscape(str)
 end
 
 --- Try to read metadata from KOReader's .sdr cache directory.
@@ -709,7 +732,11 @@ function FileOps:_readSdrMetadata(full_path)
 end
 
 --- Parse MOBI/AZW3 binary headers and extract metadata.
---- Returns a table with title, author, has_cover, cover_record_index (or nil on failure).
+--- Reads the PalmDB header, MOBI header, and EXTH records to extract
+--- title, author, and cover image location.
+--- Reference: https://wiki.mobileread.com/wiki/MOBI
+--- @param full_path string: absolute filesystem path to the MOBI/AZW3 file
+--- @return table|nil: {title, author, has_cover, cover_record_index, num_records} or nil on failure
 function FileOps:_parseMobiMetadata(full_path)
     local ok, result = pcall(function()
         local f = io.open(full_path, "rb")
@@ -1000,49 +1027,128 @@ function FileOps:_extractMobiCover(full_path)
     return nil, "Cannot extract cover from MOBI/AZW3"
 end
 
+--- Read an EPUB's OPF content and extract cover metadata.
+--- This is the shared helper for _epubHasCover, getMetadata (EPUB branch), and getBookCover.
+--- @param full_path string: absolute filesystem path to the EPUB file
+--- @return table|nil: on success, a table with fields:
+---   opf_content (string), opf_dir (string), cover_id (string|nil),
+---   cover_href (string|nil), cover_media_type (string|nil),
+---   title (string|nil), author (string|nil), has_cover (bool)
+---   Returns nil if the EPUB cannot be read or has no valid OPF.
+function FileOps:_readEpubOpf(full_path)
+    local escaped_path = self:_shellEscape(full_path)
+
+    -- Step 1: Read container.xml to locate the OPF file
+    local container_cmd = "unzip -p " .. escaped_path .. " META-INF/container.xml 2>/dev/null"
+    local container_handle = io.popen(container_cmd)
+    if not container_handle then return nil end
+    local container_xml = container_handle:read("*all")
+    container_handle:close()
+    if not container_xml or #container_xml == 0 then return nil end
+
+    local opf_path = container_xml:match('full%-path="([^"]+)"')
+    if not opf_path then return nil end
+
+    -- Step 2: Read the OPF content
+    local opf_cmd = "unzip -p " .. escaped_path .. " " .. self:_shellEscape(opf_path) .. " 2>/dev/null"
+    local opf_handle = io.popen(opf_cmd)
+    if not opf_handle then return nil end
+    local opf_content = opf_handle:read("*all")
+    opf_handle:close()
+    if not opf_content or #opf_content == 0 then return nil end
+
+    -- Step 3: Extract metadata from the OPF
+    local opf_dir = opf_path:match("(.+)/[^/]+$") or ""
+
+    local title_raw = opf_content:match("<dc:title[^>]*>([^<]+)</dc:title>")
+    local title = title_raw and title_raw:gsub("^%s+", ""):gsub("%s+$", "") or nil
+
+    local author_raw = opf_content:match("<dc:creator[^>]*>([^<]+)</dc:creator>")
+    local author = author_raw and author_raw:gsub("^%s+", ""):gsub("%s+$", "") or nil
+
+    -- Step 4: Find cover metadata
+    local cover_id = opf_content:match('<meta[^>]*name="cover"[^>]*content="([^"]+)"')
+    if not cover_id then
+        cover_id = opf_content:match('<meta[^>]*content="([^"]+)"[^>]*name="cover"')
+    end
+
+    local cover_href = nil
+    local cover_media_type = nil
+    local has_cover = false
+
+    -- Method 1: Look up item by cover_id
+    if cover_id then
+        for item in opf_content:gmatch('<item[^>]+/?>') do
+            local item_id = item:match('id="([^"]+)"')
+            if item_id == cover_id then
+                cover_href = item:match('href="([^"]+)"')
+                cover_media_type = item:match('media%-type="([^"]+)"')
+                has_cover = true
+                break
+            end
+        end
+        -- If cover_id was found but no matching item, still flag has_cover
+        -- (the cover meta element alone indicates a cover exists)
+        if not has_cover then
+            -- Check if any item with this id exists (self-closing or not)
+            local esc_id = cover_id:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
+            local item_pattern = '<item[^>]*id="' .. esc_id .. '"[^>]*/>'
+            local cover_item = opf_content:match(item_pattern)
+            if not cover_item then
+                item_pattern = '<item[^>]*id="' .. esc_id .. '"[^>]*>'
+                cover_item = opf_content:match(item_pattern)
+            end
+            if cover_item then
+                has_cover = true
+                cover_href = cover_item:match('href="([^"]+)"')
+                cover_media_type = cover_item:match('media%-type="([^"]+)"')
+            end
+        end
+    end
+
+    -- Method 2: Look for items with id containing "cover" and image media-type
+    if not has_cover then
+        for item in opf_content:gmatch('<item[^>]+/?>') do
+            local item_id = item:match('id="([^"]+)"')
+            local media = item:match('media%-type="([^"]+)"')
+            local href = item:match('href="([^"]+)"')
+            if item_id and media and item_id:lower():find("cover") and media:match("^image/") then
+                cover_href = href
+                cover_media_type = media
+                has_cover = true
+                break
+            end
+        end
+    end
+
+    return {
+        opf_content = opf_content,
+        opf_dir = opf_dir,
+        opf_path = opf_path,
+        title = title,
+        author = author,
+        cover_id = cover_id,
+        cover_href = cover_href,
+        cover_media_type = cover_media_type,
+        has_cover = has_cover,
+    }
+end
+
 --- Quick check whether an EPUB file has a cover image (for .sdr cache path).
 --- Returns true/false.
 function FileOps:_epubHasCover(full_path)
     local ok, has = pcall(function()
-        local escaped_path = self:_shellEscape(full_path)
-        local container_cmd = "unzip -p " .. escaped_path .. " META-INF/container.xml 2>/dev/null"
-        local container_handle = io.popen(container_cmd)
-        if not container_handle then return false end
-        local container_xml = container_handle:read("*all")
-        container_handle:close()
-        if not container_xml or #container_xml == 0 then return false end
-
-        local opf_path = container_xml:match('full%-path="([^"]+)"')
-        if not opf_path then return false end
-
-        local opf_cmd = "unzip -p " .. escaped_path .. " " .. self:_shellEscape(opf_path) .. " 2>/dev/null"
-        local opf_handle = io.popen(opf_cmd)
-        if not opf_handle then return false end
-        local opf_content = opf_handle:read("*all")
-        opf_handle:close()
-        if not opf_content or #opf_content == 0 then return false end
-
-        -- Check for cover via meta element
-        local cover_id = opf_content:match('<meta[^>]*name="cover"[^>]*content="([^"]+)"')
-        if not cover_id then
-            cover_id = opf_content:match('<meta[^>]*content="([^"]+)"[^>]*name="cover"')
-        end
-        if cover_id then return true end
-
-        -- Check for items with cover-like id and image media-type
-        for item in opf_content:gmatch('<item[^>]+/?>') do
-            local item_id = item:match('id="([^"]+)"')
-            local media = item:match('media%-type="([^"]+)"')
-            if item_id and media and item_id:lower():find("cover") and media:match("^image/") then
-                return true
-            end
-        end
-        return false
+        local opf_data = self:_readEpubOpf(full_path)
+        return opf_data and opf_data.has_cover or false
     end)
     return ok and has
 end
 
---- Get metadata for a file
+--- Get metadata for a file: title, author, cover status, size, type, etc.
+--- Tries .sdr cache first, then EPUB OPF / MOBI binary headers, then filename parsing.
+--- @param rel_path string: relative path from root_dir
+--- @return table|nil: metadata table with name, size, modified, type, title, author, has_cover, etc.
+--- @return string|nil: error message on failure
 function FileOps:getMetadata(rel_path)
     local full_path, err = self:_resolvePath(rel_path)
     if not full_path then
@@ -1088,83 +1194,11 @@ function FileOps:getMetadata(rel_path)
 
     -- Step 2: For EPUB files without .sdr cache data, extract from OPF
     if not result.title and extension:lower() == "epub" and attr.mode == "file" then
-        local escaped_path = self:_shellEscape(full_path)
-        -- Try to find the OPF file path from container.xml
-        local container_cmd = "unzip -p " .. escaped_path .. " META-INF/container.xml 2>/dev/null"
-        local container_handle = io.popen(container_cmd)
-        if container_handle then
-            local container_xml = container_handle:read("*all")
-            container_handle:close()
-
-            if container_xml and #container_xml > 0 then
-                -- Extract the rootfile path from container.xml
-                local opf_path = container_xml:match('full%-path="([^"]+)"')
-                if opf_path then
-                    local opf_cmd = "unzip -p " .. escaped_path .. " " .. self:_shellEscape(opf_path) .. " 2>/dev/null"
-                    local opf_handle = io.popen(opf_cmd)
-                    if opf_handle then
-                        local opf_content = opf_handle:read("*all")
-                        opf_handle:close()
-
-                        if opf_content and #opf_content > 0 then
-                            -- Extract title
-                            local title = opf_content:match("<dc:title[^>]*>([^<]+)</dc:title>")
-                            if title then
-                                result.title = title:gsub("^%s+", ""):gsub("%s+$", "")
-                            end
-
-                            -- Extract author/creator
-                            local author = opf_content:match("<dc:creator[^>]*>([^<]+)</dc:creator>")
-                            if author then
-                                result.author = author:gsub("^%s+", ""):gsub("%s+$", "")
-                            end
-
-                            -- Check for cover image
-                            -- Method 1: Look for <meta name="cover" content="cover-id"/>
-                            local cover_id = opf_content:match('<meta[^>]*name="cover"[^>]*content="([^"]+)"')
-                            if not cover_id then
-                                cover_id = opf_content:match('<meta[^>]*content="([^"]+)"[^>]*name="cover"')
-                            end
-                            if cover_id then
-                                -- Check that the item with this id exists and is an image
-                                local item_pattern = '<item[^>]*id="' .. cover_id:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1") .. '"[^>]*/>'
-                                local cover_item = opf_content:match(item_pattern)
-                                if not cover_item then
-                                    -- Try non-self-closing item tag
-                                    item_pattern = '<item[^>]*id="' .. cover_id:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1") .. '"[^>]*>'
-                                    cover_item = opf_content:match(item_pattern)
-                                end
-                                if cover_item then
-                                    result.has_cover = true
-                                end
-                            end
-
-                            -- Method 2: Look for items with id containing "cover" and image media-type
-                            if not result.has_cover then
-                                for item in opf_content:gmatch('<item[^>]+>') do
-                                    local item_id = item:match('id="([^"]+)"')
-                                    local media = item:match('media%-type="([^"]+)"')
-                                    if item_id and media and item_id:lower():find("cover") and media:match("^image/") then
-                                        result.has_cover = true
-                                        break
-                                    end
-                                end
-                                -- Also check self-closing items
-                                if not result.has_cover then
-                                    for item in opf_content:gmatch('<item[^>]+/>') do
-                                        local item_id = item:match('id="([^"]+)"')
-                                        local media = item:match('media%-type="([^"]+)"')
-                                        if item_id and media and item_id:lower():find("cover") and media:match("^image/") then
-                                            result.has_cover = true
-                                            break
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end
+        local opf_data = self:_readEpubOpf(full_path)
+        if opf_data then
+            if opf_data.title then result.title = opf_data.title end
+            if opf_data.author then result.author = opf_data.author end
+            if opf_data.has_cover then result.has_cover = true end
         end
     end
 
@@ -1195,7 +1229,13 @@ function FileOps:getMetadata(rel_path)
     return result
 end
 
---- Extract and stream cover image from an ebook file (EPUB, MOBI, AZW3)
+--- Extract and stream cover image from an ebook file (EPUB, MOBI, AZW3).
+--- Sends the image data directly to the HTTP client socket.
+--- @param client userdata: LuaSocket client connection
+--- @param rel_path string: relative path to the ebook file
+--- @param server table: HttpServer instance (for sending response headers)
+--- @return boolean: true on success
+--- @return string|nil: error message on failure
 function FileOps:getBookCover(client, rel_path, server)
     local full_path, err = self:_resolvePath(rel_path)
     if not full_path then
@@ -1239,77 +1279,15 @@ function FileOps:getBookCover(client, rel_path, server)
         return false, "Cover extraction not supported for this format"
     end
 
-    local escaped_path = self:_shellEscape(full_path)
-
-    -- Read container.xml to find OPF path
-    local container_cmd = "unzip -p " .. escaped_path .. " META-INF/container.xml 2>/dev/null"
-    local container_handle = io.popen(container_cmd)
-    if not container_handle then
-        return false, "Cannot read EPUB"
-    end
-    local container_xml = container_handle:read("*all")
-    container_handle:close()
-
-    if not container_xml or #container_xml == 0 then
-        return false, "Invalid EPUB: no container.xml"
+    -- Use shared OPF parser to locate cover metadata
+    local opf_data = self:_readEpubOpf(full_path)
+    if not opf_data then
+        return false, "Cannot read EPUB OPF"
     end
 
-    local opf_path = container_xml:match('full%-path="([^"]+)"')
-    if not opf_path then
-        return false, "Invalid EPUB: no OPF path"
-    end
-
-    -- Determine the OPF directory for resolving relative paths
-    local opf_dir = opf_path:match("(.+)/[^/]+$") or ""
-
-    -- Read OPF content
-    local opf_cmd = "unzip -p " .. escaped_path .. " " .. self:_shellEscape(opf_path) .. " 2>/dev/null"
-    local opf_handle = io.popen(opf_cmd)
-    if not opf_handle then
-        return false, "Cannot read OPF"
-    end
-    local opf_content = opf_handle:read("*all")
-    opf_handle:close()
-
-    if not opf_content or #opf_content == 0 then
-        return false, "Invalid EPUB: empty OPF"
-    end
-
-    local cover_href = nil
-    local cover_media_type = nil
-
-    -- Method 1: Find cover meta element and look up the item by ID
-    local cover_id = opf_content:match('<meta[^>]*name="cover"[^>]*content="([^"]+)"')
-    if not cover_id then
-        cover_id = opf_content:match('<meta[^>]*content="([^"]+)"[^>]*name="cover"')
-    end
-
-    if cover_id then
-        local escaped_id = cover_id:gsub("([%(%)%.%%%+%-%*%?%[%]%^%$])", "%%%1")
-        -- Search both self-closing and regular item tags
-        for item in opf_content:gmatch('<item[^>]+/?>') do
-            local item_id = item:match('id="([^"]+)"')
-            if item_id == cover_id then
-                cover_href = item:match('href="([^"]+)"')
-                cover_media_type = item:match('media%-type="([^"]+)"')
-                break
-            end
-        end
-    end
-
-    -- Method 2: Look for items with id containing "cover" and image media-type
-    if not cover_href then
-        for item in opf_content:gmatch('<item[^>]+/?>') do
-            local item_id = item:match('id="([^"]+)"')
-            local media = item:match('media%-type="([^"]+)"')
-            local href = item:match('href="([^"]+)"')
-            if item_id and media and href and item_id:lower():find("cover") and media:match("^image/") then
-                cover_href = href
-                cover_media_type = media
-                break
-            end
-        end
-    end
+    local cover_href = opf_data.cover_href
+    local cover_media_type = opf_data.cover_media_type
+    local opf_dir = opf_data.opf_dir
 
     if not cover_href then
         return false, "Cover not found"
@@ -1344,7 +1322,8 @@ function FileOps:getBookCover(client, rel_path, server)
         end
     end
 
-    -- Extract the cover image
+    -- Extract the cover image from the EPUB archive
+    local escaped_path = self:_shellEscape(full_path)
     local extract_cmd = "unzip -p " .. escaped_path .. " " .. self:_shellEscape(cover_path_in_epub) .. " 2>/dev/null"
     local img_handle = io.popen(extract_cmd)
     if not img_handle then
