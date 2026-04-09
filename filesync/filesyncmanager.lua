@@ -44,6 +44,13 @@ local FileSyncManager = {
     _qr_widget = nil,
 }
 
+function FileSyncManager:new(o)
+    o = o or {}
+    setmetatable(o, self)
+    self.__index = self
+    return o
+end
+
 local DEFAULT_PORT = 8080
 
 function FileSyncManager:getPort()

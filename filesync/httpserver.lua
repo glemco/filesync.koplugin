@@ -16,6 +16,13 @@ local UIManager = require("ui/uimanager")
 local MAX_BODY_SIZE = 50 * 1024 * 1024
 -- Maximum number of HTTP headers per request
 local MAX_HEADER_COUNT = 100
+-- Per-connection socket timeout in seconds. Kept short so a single slow
+-- client cannot stall the UI event loop for too long.
+local CONNECTION_TIMEOUT = 2
+-- Maximum wall-clock time (seconds) the poll loop may spend handling
+-- connections before yielding back to the UIManager event loop.  This
+-- prevents N slow clients from blocking the UI for N * CONNECTION_TIMEOUT.
+local MAX_POLL_TIME = 3
 
 local HttpServer = {
     port = 8080,
@@ -84,12 +91,26 @@ end
 function HttpServer:_poll()
     if not self._running or not self._server_socket then return end
 
-    -- Process up to 4 pending connections per cycle (browser may open several at once)
+    local poll_start = socket.gettime()
+
+    -- Process up to 4 pending connections per cycle (browser may open several at once).
+    -- A per-poll time budget (MAX_POLL_TIME) prevents the full set of slow
+    -- connections from blocking the UI for up to 4 * CONNECTION_TIMEOUT seconds.
+    -- The budget is checked *before* starting each new connection so that a
+    -- connection already in progress is never interrupted mid-handling.
     for _ = 1, 4 do
+        -- Yield back to UIManager if this poll cycle has already consumed
+        -- too much wall-clock time.  Remaining connections will be picked
+        -- up on the next scheduled poll.
+        if socket.gettime() - poll_start >= MAX_POLL_TIME then
+            logger.dbg("FileSync HTTP: poll time budget exceeded, deferring remaining connections")
+            break
+        end
+
         local client = self._server_socket:accept()
         if not client then break end
 
-        client:settimeout(5)
+        client:settimeout(CONNECTION_TIMEOUT)
         local ok, err = pcall(function()
             self:_handleClient(client)
         end)
@@ -298,9 +319,17 @@ function HttpServer:_route(client, method, path, query, headers, body)
                 self:_sendJSON(client, 400, {error = "Missing path parameter"})
                 return
             end
-            local ok, err_msg = FileOps:getBookCover(client, file_path, self)
-            if not ok then
+            local cover, err_msg = FileOps:getBookCover(file_path)
+            if not cover then
                 self:_sendJSON(client, 404, {error = err_msg or "Cover not found"})
+            else
+                self:sendResponseHeaders(client, 200, {
+                    ["Content-Type"] = cover.content_type,
+                    ["Content-Length"] = tostring(#cover.data),
+                    ["Cache-Control"] = "public, max-age=86400",
+                    ["Connection"] = "close",
+                })
+                self:_sendAll(client, cover.data)
             end
 
         elseif method == "GET" and path == "/api/files" then
@@ -330,9 +359,32 @@ function HttpServer:_route(client, method, path, query, headers, body)
                 end
             end
             local inline = query.preview == "1"
-            local ok, err_msg = FileOps:downloadFile(client, file_path, self, inline)
-            if not ok then
+            local result, err_msg = FileOps:downloadFile(file_path, inline)
+            if not result then
                 self:_sendJSON(client, 400, {error = err_msg or "Cannot download file"})
+            else
+                local disposition = result.inline
+                    and ('inline; filename="' .. result.filename .. '"')
+                    or ('attachment; filename="' .. result.filename .. '"')
+                self:sendResponseHeaders(client, 200, {
+                    ["Content-Type"] = result.mime_type,
+                    ["Content-Length"] = tostring(result.size),
+                    ["Content-Disposition"] = disposition,
+                    ["Connection"] = "close",
+                })
+                -- Stream file in chunks
+                local CHUNK_SIZE = 65536
+                local stream_ok = true
+                while stream_ok do
+                    local chunk = result.file_handle:read(CHUNK_SIZE)
+                    if not chunk then break end
+                    local sent, send_err = self:_sendAll(client, chunk)
+                    if not sent then
+                        logger.warn("FileSync HTTP: send error during download:", send_err)
+                        stream_ok = false
+                    end
+                end
+                result.file_handle:close()
             end
 
         elseif method == "POST" and path == "/api/upload" then
