@@ -229,6 +229,12 @@ luarocks install busted
 busted
 ```
 
+これにより、5つのテストファイルにわたる177以上のテストが実行されます。以下のような出力が表示されるはずです：
+
+```
+177 successes / 0 failures / 0 errors / 0 pending : 0.04 seconds
+```
+
 **特定のテストファイルを実行：**
 
 ```bash

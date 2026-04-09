@@ -229,6 +229,12 @@ luarocks install busted
 busted
 ```
 
+Это запустит более 177 тестов в 5 файлах. Вы должны увидеть вывод, похожий на:
+
+```
+177 successes / 0 failures / 0 errors / 0 pending : 0.04 seconds
+```
+
 **Запустить конкретный файл тестов:**
 
 ```bash

@@ -229,6 +229,12 @@ luarocks install busted
 busted
 ```
 
+Isso executa mais de 177 testes em 5 arquivos de teste. Você deverá ver uma saída como:
+
+```
+177 successes / 0 failures / 0 errors / 0 pending : 0.04 seconds
+```
+
 **Executar um arquivo de teste específico:**
 
 ```bash

@@ -254,3 +254,9 @@ msgstr "Nova pasta"
 
 msgid "Also delete reading metadata (.sdr)"
 msgstr "Tamb\u00e9m excluir metadados de leitura (.sdr)"
+
+msgid "Large files may slow down the e-reader UI during transfer"
+msgstr "Arquivos grandes podem deixar a interface do leitor lenta durante a transfer\u00eancia"
+
+msgid "exceeds the 1 GB limit"
+msgstr "excede o limite de 1 GB"

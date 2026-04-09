@@ -229,6 +229,12 @@ luarocks install busted
 busted
 ```
 
+이 명령은 5개의 테스트 파일에 걸쳐 177개 이상의 테스트를 실행합니다. 다음과 같은 출력이 표시됩니다:
+
+```
+177 successes / 0 failures / 0 errors / 0 pending : 0.04 seconds
+```
+
 **특정 테스트 파일 실행:**
 
 ```bash

@@ -251,3 +251,9 @@ msgstr "Новая папка"
 
 msgid "Also delete reading metadata (.sdr)"
 msgstr "Также удалить метаданные чтения (.sdr)"
+
+msgid "Large files may slow down the e-reader UI during transfer"
+msgstr "Большие файлы могут замедлить интерфейс электронной книги во время передачи"
+
+msgid "exceeds the 1 GB limit"
+msgstr "превышает лимит в 1 ГБ"

@@ -254,3 +254,9 @@ msgstr "新建文件夹"
 
 msgid "Also delete reading metadata (.sdr)"
 msgstr "同时删除阅读元数据（.sdr）"
+
+msgid "Large files may slow down the e-reader UI during transfer"
+msgstr "大文件可能会在传输期间导致阅读器界面变慢"
+
+msgid "exceeds the 1 GB limit"
+msgstr "超过 1 GB 限制"

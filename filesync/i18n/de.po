@@ -251,3 +251,9 @@ msgstr "Neuer Ordner"
 
 msgid "Also delete reading metadata (.sdr)"
 msgstr "Auch Lesemetadaten (.sdr) löschen"
+
+msgid "Large files may slow down the e-reader UI during transfer"
+msgstr "Große Dateien können die Benutzeroberfläche des E-Readers während der Übertragung verlangsamen"
+
+msgid "exceeds the 1 GB limit"
+msgstr "überschreitet das Limit von 1 GB"

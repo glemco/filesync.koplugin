@@ -251,3 +251,9 @@ msgstr "새 폴더"
 
 msgid "Also delete reading metadata (.sdr)"
 msgstr "읽기 메타데이터(.sdr)도 함께 삭제"
+
+msgid "Large files may slow down the e-reader UI during transfer"
+msgstr "큰 파일은 전송 중 전자책 리더 UI가 느려질 수 있습니다"
+
+msgid "exceeds the 1 GB limit"
+msgstr "1 GB 제한을 초과합니다"

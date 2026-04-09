@@ -252,3 +252,9 @@ msgstr ""
 
 msgid "Also delete reading metadata (.sdr)"
 msgstr ""
+
+msgid "Large files may slow down the e-reader UI during transfer"
+msgstr ""
+
+msgid "exceeds the 1 GB limit"
+msgstr ""
