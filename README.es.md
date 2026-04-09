@@ -197,6 +197,10 @@ Para alternar el modo seguro, abre el menú del plugin y toca **Modo seguro**. D
 - Verifica el espacio de almacenamiento disponible en el dispositivo
 - Los archivos muy grandes pueden agotar el tiempo de espera — intenta subir en lotes más pequeños
 - Asegúrate de que el directorio de destino tenga permisos de escritura
+- El tamaño máximo de subida es de 1 GB por archivo
+
+**La subida de archivos grandes ralentiza el dispositivo**
+- Subir archivos de más de 100 MB puede hacer que la interfaz del lector electrónico deje de responder temporalmente durante la transferencia. Esto es normal — el dispositivo tiene una capacidad de procesamiento limitada. La interfaz se recuperará una vez que la subida se complete.
 
 ## Contribuir
 

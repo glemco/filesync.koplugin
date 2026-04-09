@@ -116,4 +116,111 @@ describe("filesync.httpserver", function()
             assert.are.equal("", result.filter)
         end)
     end)
+
+    describe("_extractBoundary", function()
+        local server
+
+        before_each(function()
+            server = new_server()
+        end)
+
+        it("extracts boundary from standard Content-Type", function()
+            assert.are.equal("----WebKitFormBoundaryABC123",
+                server:_extractBoundary("multipart/form-data; boundary=----WebKitFormBoundaryABC123"))
+        end)
+
+        it("extracts boundary without semicolon separator", function()
+            assert.are.equal("myboundary",
+                server:_extractBoundary("multipart/form-data; boundary=myboundary"))
+        end)
+
+        it("returns nil for missing boundary", function()
+            assert.is_nil(server:_extractBoundary("multipart/form-data"))
+        end)
+
+        it("returns nil for non-multipart content type", function()
+            assert.is_nil(server:_extractBoundary("application/json"))
+        end)
+
+        it("returns nil for nil input", function()
+            assert.is_nil(server:_extractBoundary(nil))
+        end)
+
+        it("extracts boundary with extra parameters after it", function()
+            assert.are.equal("bound123",
+                server:_extractBoundary("multipart/form-data; boundary=bound123; charset=utf-8"))
+        end)
+
+        it("handles boundary with hyphens", function()
+            assert.are.equal("------WebKitFormBoundaryXYZ",
+                server:_extractBoundary("multipart/form-data; boundary=------WebKitFormBoundaryXYZ"))
+        end)
+    end)
+
+    describe("_extractUploadFilename", function()
+        local server
+
+        before_each(function()
+            server = new_server()
+        end)
+
+        it("extracts a simple filename", function()
+            local headers = 'Content-Disposition: form-data; name="files"; filename="book.epub"'
+            assert.are.equal("book.epub", server:_extractUploadFilename(headers, nil))
+        end)
+
+        it("strips Windows path components", function()
+            local headers = 'Content-Disposition: form-data; name="files"; filename="C:\\Users\\test\\book.epub"'
+            assert.are.equal("book.epub", server:_extractUploadFilename(headers, nil))
+        end)
+
+        it("strips Unix path components", function()
+            local headers = 'Content-Disposition: form-data; name="files"; filename="/home/user/documents/book.pdf"'
+            assert.are.equal("book.pdf", server:_extractUploadFilename(headers, nil))
+        end)
+
+        it("fixes iOS Safari .epub.zip suffix", function()
+            local headers = 'Content-Disposition: form-data; name="files"; filename="novel.epub.zip"'
+            assert.are.equal("novel.epub", server:_extractUploadFilename(headers, nil))
+        end)
+
+        it("fixes iOS Safari .cbz.zip suffix", function()
+            local headers = 'Content-Disposition: form-data; name="files"; filename="comic.cbz.zip"'
+            assert.are.equal("comic.cbz", server:_extractUploadFilename(headers, nil))
+        end)
+
+        it("does not strip .zip from regular zip files", function()
+            local headers = 'Content-Disposition: form-data; name="files"; filename="archive.zip"'
+            assert.are.equal("archive.zip", server:_extractUploadFilename(headers, nil))
+        end)
+
+        it("returns nil for missing filename", function()
+            local headers = 'Content-Disposition: form-data; name="files"'
+            local result, err = server:_extractUploadFilename(headers, nil)
+            assert.is_nil(result)
+            assert.is_not_nil(err)
+        end)
+
+        it("returns nil for empty filename", function()
+            local headers = 'Content-Disposition: form-data; name="files"; filename=""'
+            local result, err = server:_extractUploadFilename(headers, nil)
+            assert.is_nil(result)
+            assert.is_not_nil(err)
+        end)
+
+        it("handles filename with spaces", function()
+            local headers = 'Content-Disposition: form-data; name="files"; filename="my book (2024).epub"'
+            assert.are.equal("my book (2024).epub", server:_extractUploadFilename(headers, nil))
+        end)
+
+        it("handles multiline headers", function()
+            local headers = 'Content-Disposition: form-data; name="files"; filename="test.pdf"\r\nContent-Type: application/pdf'
+            assert.are.equal("test.pdf", server:_extractUploadFilename(headers, nil))
+        end)
+
+        it("handles filename with unicode characters", function()
+            local headers = 'Content-Disposition: form-data; name="files"; filename="libro-español.epub"'
+            assert.are.equal("libro-español.epub", server:_extractUploadFilename(headers, nil))
+        end)
+    end)
 end)

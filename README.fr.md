@@ -197,6 +197,10 @@ Pour activer ou désactiver le mode sécurisé, ouvrez le menu du plugin et appu
 - Vérifiez l'espace de stockage disponible sur l'appareil
 - Les fichiers très volumineux peuvent dépasser le délai d'attente — essayez d'envoyer des lots plus petits
 - Assurez-vous que le répertoire cible est accessible en écriture
+- La taille maximale d'envoi est de 1 Go par fichier
+
+**L'envoi de fichiers volumineux ralentit l'appareil**
+- L'envoi de fichiers de plus de 100 Mo peut rendre temporairement l'interface de la liseuse non réactive pendant le transfert. C'est normal — l'appareil a une puissance de traitement limitée. L'interface se rétablira une fois l'envoi terminé.
 
 ## Contribuer
 

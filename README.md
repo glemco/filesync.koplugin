@@ -197,6 +197,10 @@ To toggle safe mode, open the plugin menu and tap **Safe mode**. Disabling it wi
 - Check available storage space on the device
 - Very large files may time out — try uploading smaller batches
 - Ensure the target directory is writable
+- The maximum upload size is 1 GB per file
+
+**Large file uploads slow the device**
+- Uploading files over 100 MB may cause the e-reader UI to become temporarily unresponsive during the transfer. This is normal — the device has limited processing power. The UI will recover once the upload completes.
 
 ## Contributing
 

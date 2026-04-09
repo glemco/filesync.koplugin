@@ -197,6 +197,10 @@ Um den sicheren Modus umzuschalten, öffnen Sie das Plugin-Menü und tippen Sie 
 - Überprüfen Sie den verfügbaren Speicherplatz auf dem Gerät
 - Sehr große Dateien können ein Zeitlimit überschreiten — versuchen Sie, kleinere Pakete hochzuladen
 - Stellen Sie sicher, dass das Zielverzeichnis beschreibbar ist
+- Die maximale Upload-Größe beträgt 1 GB pro Datei
+
+**Das Hochladen großer Dateien verlangsamt das Gerät**
+- Das Hochladen von Dateien über 100 MB kann dazu führen, dass die Benutzeroberfläche des E-Readers während der Übertragung vorübergehend nicht reagiert. Dies ist normal — das Gerät hat eine begrenzte Rechenleistung. Die Oberfläche wird nach Abschluss des Uploads wiederhergestellt.
 
 ## Mitwirken
 

@@ -450,10 +450,15 @@ function FileOps:handleUpload(rel_dir, body, boundary)
                     local file_path = dir_path .. "/" .. filename
                     local f = io.open(file_path, "wb")
                     if f then
-                        f:write(file_data)
+                        local write_ok, write_err = f:write(file_data)
                         f:close()
-                        uploaded_count = uploaded_count + 1
-                        logger.info("FileSync: Uploaded", filename, "to", dir_path)
+                        if write_ok then
+                            uploaded_count = uploaded_count + 1
+                            logger.info("FileSync: Uploaded", filename, "to", dir_path)
+                        else
+                            logger.warn("FileSync: Write failed for", file_path, write_err)
+                            pcall(os.remove, file_path)
+                        end
                     else
                         logger.warn("FileSync: Cannot write file", file_path)
                     end

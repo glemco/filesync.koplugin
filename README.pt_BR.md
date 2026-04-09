@@ -197,6 +197,10 @@ Para alternar o modo seguro, abra o menu do plugin e toque em **Modo seguro**. D
 - Verifique o espaço de armazenamento disponível no dispositivo
 - Arquivos muito grandes podem causar timeout — tente enviar em lotes menores
 - Certifique-se de que o diretório de destino tenha permissão de escrita
+- O tamanho máximo de upload é de 1 GB por arquivo
+
+**O upload de arquivos grandes deixa o dispositivo lento**
+- O envio de arquivos com mais de 100 MB pode fazer com que a interface do leitor eletrônico fique temporariamente sem resposta durante a transferência. Isso é normal — o dispositivo tem capacidade de processamento limitada. A interface se recuperará assim que o upload for concluído.
 
 ## Contribuindo
 
