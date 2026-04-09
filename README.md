@@ -75,7 +75,9 @@ Works on **Kindle** and **Kobo** devices running KOReader.
    │       ├── httpserver.lua
    │       ├── fileops.lua
    │       ├── filesync_i18n.lua
-   │       ├── qrcode.lua
+   │       ├── json.lua
+   │       ├── mobi.lua
+   │       ├── utils.lua
    │       ├── static/
    │       │   └── index.html
    │       └── i18n/
@@ -203,8 +205,49 @@ Contributions are welcome!
 1. Fork the repository
 2. Create a feature branch
 3. Make your changes
-4. Test on a real device if possible
-5. Submit a pull request
+4. Run the test suite (see below)
+5. Test on a real device if possible
+6. Submit a pull request
+
+### Running Tests
+
+The project uses [busted](https://lunarmodules.github.io/busted/) for unit testing. Tests cover the pure-logic functions (JSON encode/decode, path validation, version parsing, etc.) and do not require a KOReader environment.
+
+**Install busted** (if not already installed):
+
+```bash
+luarocks install busted
+```
+
+**Run all tests:**
+
+```bash
+busted
+```
+
+This runs 177+ tests across 5 spec files. You should see output like:
+
+```
+177 successes / 0 failures / 0 errors / 0 pending : 0.04 seconds
+```
+
+**Run a specific spec file:**
+
+```bash
+busted spec/json_spec.lua
+```
+
+**Test files:**
+
+| File | Covers |
+|------|--------|
+| `spec/json_spec.lua` | JSON encode/decode round-trips, edge cases, error handling |
+| `spec/fileops_spec.lua` | Path traversal prevention, filename validation, size formatting, MIME types |
+| `spec/updater_spec.lua` | Version parsing, version comparison, changelog extraction |
+| `spec/utils_spec.lua` | Plugin directory resolution, shell escaping |
+| `spec/httpserver_spec.lua` | URL decoding, query string parsing |
+
+When adding new features, please add corresponding tests for any pure-logic functions.
 
 ## License
 

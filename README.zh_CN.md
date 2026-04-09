@@ -75,7 +75,9 @@
    │       ├── httpserver.lua
    │       ├── fileops.lua
    │       ├── filesync_i18n.lua
-   │       ├── qrcode.lua
+   │       ├── json.lua
+   │       ├── mobi.lua
+   │       ├── utils.lua
    │       ├── static/
    │       │   └── index.html
    │       └── i18n/
@@ -203,8 +205,43 @@
 1. Fork 本仓库
 2. 创建功能分支
 3. 进行修改
-4. 尽可能在真实设备上测试
-5. 提交 Pull Request
+4. 运行测试套件（见下文）
+5. 尽可能在真实设备上测试
+6. 提交 Pull Request
+
+### 运行测试
+
+本项目使用 [busted](https://lunarmodules.github.io/busted/) 进行单元测试。测试覆盖了纯逻辑函数（JSON 编解码、路径验证、版本解析等），无需 KOReader 运行环境。
+
+**安装 busted**（如尚未安装）：
+
+```bash
+luarocks install busted
+```
+
+**运行全部测试：**
+
+```bash
+busted
+```
+
+**运行特定测试文件：**
+
+```bash
+busted spec/json_spec.lua
+```
+
+**测试文件：**
+
+| 文件 | 覆盖范围 |
+|------|----------|
+| `spec/json_spec.lua` | JSON 编解码往返测试、边界情况、错误处理 |
+| `spec/fileops_spec.lua` | 路径遍历防护、文件名验证、大小格式化、MIME 类型 |
+| `spec/updater_spec.lua` | 版本解析、版本比较、更新日志提取 |
+| `spec/utils_spec.lua` | 插件目录解析、Shell 转义 |
+| `spec/httpserver_spec.lua` | URL 解码、查询字符串解析 |
+
+添加新功能时，请为纯逻辑函数编写相应的测试。
 
 ## 许可证
 

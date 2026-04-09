@@ -75,7 +75,9 @@ Funktioniert auf **Kindle**- und **Kobo**-Geräten mit KOReader.
    │       ├── httpserver.lua
    │       ├── fileops.lua
    │       ├── filesync_i18n.lua
-   │       ├── qrcode.lua
+   │       ├── json.lua
+   │       ├── mobi.lua
+   │       ├── utils.lua
    │       ├── static/
    │       │   └── index.html
    │       └── i18n/
@@ -203,8 +205,43 @@ Beiträge sind willkommen!
 1. Forken Sie das Repository
 2. Erstellen Sie einen Feature-Branch
 3. Nehmen Sie Ihre Änderungen vor
-4. Testen Sie wenn möglich auf einem echten Gerät
-5. Reichen Sie einen Pull Request ein
+4. Führen Sie die Tests aus (siehe unten)
+5. Testen Sie wenn möglich auf einem echten Gerät
+6. Reichen Sie einen Pull Request ein
+
+### Tests ausführen
+
+Das Projekt verwendet [busted](https://lunarmodules.github.io/busted/) für Unit-Tests. Die Tests decken reine Logikfunktionen ab (JSON-Kodierung/-Dekodierung, Pfadvalidierung, Versionsanalyse usw.) und benötigen keine KOReader-Umgebung.
+
+**busted installieren** (falls noch nicht installiert):
+
+```bash
+luarocks install busted
+```
+
+**Alle Tests ausführen:**
+
+```bash
+busted
+```
+
+**Eine bestimmte Testdatei ausführen:**
+
+```bash
+busted spec/json_spec.lua
+```
+
+**Testdateien:**
+
+| Datei | Abdeckung |
+|-------|-----------|
+| `spec/json_spec.lua` | JSON-Kodierung/-Dekodierung, Grenzfälle, Fehlerbehandlung |
+| `spec/fileops_spec.lua` | Path-Traversal-Schutz, Dateinamenvalidierung, Größenformatierung, MIME-Typen |
+| `spec/updater_spec.lua` | Versionsanalyse, Versionsvergleich, Changelog-Extraktion |
+| `spec/utils_spec.lua` | Plugin-Verzeichnisauflösung, Shell-Escaping |
+| `spec/httpserver_spec.lua` | URL-Dekodierung, Query-String-Analyse |
+
+Bitte fügen Sie beim Hinzufügen neuer Funktionen entsprechende Tests für reine Logikfunktionen hinzu.
 
 ## Lizenz
 

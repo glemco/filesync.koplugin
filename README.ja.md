@@ -75,7 +75,9 @@ KOReaderがインストールされた**Kindle**および**Kobo**デバイスで
    │       ├── httpserver.lua
    │       ├── fileops.lua
    │       ├── filesync_i18n.lua
-   │       ├── qrcode.lua
+   │       ├── json.lua
+   │       ├── mobi.lua
+   │       ├── utils.lua
    │       ├── static/
    │       │   └── index.html
    │       └── i18n/
@@ -203,8 +205,43 @@ KOReaderの再起動後、上部メニューを開いて以下に移動します
 1. リポジトリをフォークします
 2. フィーチャーブランチを作成します
 3. 変更を加えます
-4. 可能であれば実機でテストします
-5. プルリクエストを送信します
+4. テストスイートを実行します（下記参照）
+5. 可能であれば実機でテストします
+6. プルリクエストを送信します
+
+### テストの実行
+
+本プロジェクトでは、ユニットテストに [busted](https://lunarmodules.github.io/busted/) を使用しています。テストは純粋なロジック関数（JSONエンコード/デコード、パス検証、バージョン解析など）をカバーしており、KOReader環境は不要です。
+
+**bustedのインストール**（未インストールの場合）：
+
+```bash
+luarocks install busted
+```
+
+**全テストの実行：**
+
+```bash
+busted
+```
+
+**特定のテストファイルを実行：**
+
+```bash
+busted spec/json_spec.lua
+```
+
+**テストファイル：**
+
+| ファイル | カバー範囲 |
+|----------|------------|
+| `spec/json_spec.lua` | JSONエンコード/デコードの往復テスト、エッジケース、エラーハンドリング |
+| `spec/fileops_spec.lua` | パストラバーサル防止、ファイル名検証、サイズフォーマット、MIMEタイプ |
+| `spec/updater_spec.lua` | バージョン解析、バージョン比較、変更履歴の抽出 |
+| `spec/utils_spec.lua` | プラグインディレクトリの解決、シェルエスケープ |
+| `spec/httpserver_spec.lua` | URLデコード、クエリ文字列の解析 |
+
+新機能を追加する際は、純粋なロジック関数に対応するテストも追加してください。
 
 ## ライセンス
 
